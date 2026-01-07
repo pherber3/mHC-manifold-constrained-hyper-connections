@@ -132,6 +132,9 @@ class Block(nn.Module):
             ns_steps=config.ns_steps,
             ns_eps=config.ns_eps,
             ns_coeffs=config.ns_coeffs,
+            add_branch_out_to_residual=not getattr(
+                config, "mhc_residual_only", False
+            ),
         )
 
         self.hc_attn = init_hc(
@@ -174,6 +177,7 @@ class GPTConfig:
         self.ns_steps = kwargs.pop("ns_steps", 5)
         self.ns_eps = kwargs.pop("ns_eps", 1e-7)
         self.ns_coeffs = kwargs.pop("ns_coeffs", (3.0, -3.2, 1.2))
+        self.mhc_residual_only = kwargs.pop("mhc_residual_only", False)
         self.v_residual = kwargs.pop("v_residual", False)
         self.v_residual_lamb_lr = kwargs.pop("v_residual_lamb_lr", 1e-2)
 

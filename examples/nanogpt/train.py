@@ -21,6 +21,7 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from hyper_connections import HyperConnections
+from hyper_connections.hyper_connections import sinkhorn_log, orthostochastic_project
 from model import GPT, GPTConfig
 
 # -----------------------------------------------------------------------------
@@ -86,6 +87,9 @@ wandb_project = "mhc-nanogpt"
 wandb_run_name = "baseline"
 wandb_log_layer_stats = True
 wandb_log_layer_cosine = True
+wandb_log_spectral = True
+spectral_log_interval = 500
+wandb_log_stream_similarity = True
 
 # DDP backend: "nccl", "gloo", etc.
 # If NCCL fails, set NCCL_IB_DISABLE=1 or use backend="gloo"
@@ -397,6 +401,74 @@ def forward_with_layer_cosine(x, y):
     return loss, sims
 
 
+def compute_cumulative_h_res_metrics():
+    """Compute metrics for cumulative H_res products across layers."""
+    h_res_list = []
+    for block in raw_model.transformer.h:
+        for hc in (block.hc_attn, block.hc_mlp):
+            if hasattr(hc, "H_res_logits") and hc.mhc:
+                if hc.mhc_h_res_proj == "orthostochastic":
+                    H = orthostochastic_project(
+                        hc.H_res_logits, hc.ns_steps, hc.ns_eps, hc.ns_coeffs
+                    )
+                else:
+                    H = sinkhorn_log(
+                        hc.H_res_logits, hc.sinkhorn_iters, hc.sinkhorn_tau
+                    )
+                h_res_list.append(H.detach())
+
+    if not h_res_list:
+        return None
+
+    n = h_res_list[0].shape[0]
+    device = h_res_list[0].device
+    dtype = h_res_list[0].dtype
+    uniform = torch.ones(n, n, device=device, dtype=dtype) / n
+    identity = torch.eye(n, device=device, dtype=dtype)
+
+    product = identity.clone()
+    rows = []
+    for i, H in enumerate(h_res_list):
+        product = H @ product
+        eigs = torch.linalg.eigvals(product).abs().sort(descending=True).values
+        rows.append({
+            "depth": i,
+            "dist_to_uniform": (product - uniform).norm().item(),
+            "dist_to_identity": (product - identity).norm().item(),
+            "spectral_gap": 1.0 - eigs[1].item(),
+        })
+    return rows
+
+
+def forward_with_stream_similarity(x, y):
+    """Measure stream similarity at each layer."""
+    sims = []
+    handles = []
+
+    def hook(module, input, output):
+        out = output.detach()
+        bs, seq, dim = out.shape
+        batch = bs // hc_num_streams
+        x_reshaped = out.view(batch, hc_num_streams, seq, dim).view(
+            batch, hc_num_streams, -1
+        )
+        x_norm = F.normalize(x_reshaped, dim=-1)
+        sim = torch.bmm(x_norm, x_norm.transpose(-1, -2)).mean(dim=0)
+        mask = ~torch.eye(hc_num_streams, dtype=torch.bool, device=sim.device)
+        sims.append(sim[mask].mean().item())
+
+    for block in raw_model.transformer.h:
+        handles.append(block.register_forward_hook(hook))
+
+    with ctx:
+        _, loss = model(x, y)
+
+    for h in handles:
+        h.remove()
+
+    return loss, sims
+
+
 # -----------------------------------------------------------------------------
 # Evaluation
 
@@ -514,6 +586,49 @@ while iter_num <= max_iters:
                 layer_stats_table = build_layer_table(layer_stats)
                 if layer_stats_table is not None:
                     wandb.log({"hc/layer_stats": layer_stats_table}, step=iter_num)
+
+            # Log spectral stats periodically (expensive)
+            if (
+                wandb_log_spectral
+                and mhc
+                and iter_num % spectral_log_interval == 0
+            ):
+                # Enable spectral collection temporarily
+                for block in raw_model.transformer.h:
+                    for hc in (block.hc_attn, block.hc_mlp):
+                        if hasattr(hc, "mhc") and hc.mhc:
+                            hc.collect_spectral_stats = True
+
+                # Forward pass to collect stats
+                x_spec, y_spec = get_batch("train")
+                with ctx:
+                    _ = model(x_spec, y_spec)
+
+                # Disable spectral collection
+                for block in raw_model.transformer.h:
+                    for hc in (block.hc_attn, block.hc_mlp):
+                        if hasattr(hc, "mhc") and hc.mhc:
+                            hc.collect_spectral_stats = False
+
+                # Log cumulative mixing metrics
+                cumulative_rows = compute_cumulative_h_res_metrics()
+                if cumulative_rows:
+                    table = wandb.Table(columns=list(cumulative_rows[0].keys()))
+                    for row in cumulative_rows:
+                        table.add_data(*row.values())
+                    wandb.log({"hc/cumulative_mixing": table}, step=iter_num)
+
+            # Log stream similarity
+            if wandb_log_stream_similarity and hc_num_streams > 1:
+                x_sim, y_sim = get_batch("train")
+                _, stream_sims = forward_with_stream_similarity(x_sim, y_sim)
+                sim_table = wandb.Table(
+                    columns=["layer", "mean_off_diag_similarity"]
+                )
+                for i, sim in enumerate(stream_sims):
+                    sim_table.add_data(i, sim)
+                wandb.log({"hc/stream_similarity": sim_table}, step=iter_num)
+
         if losses["val"] < best_val_loss:
             best_val_loss = losses["val"]
             os.makedirs(out_dir, exist_ok=True)

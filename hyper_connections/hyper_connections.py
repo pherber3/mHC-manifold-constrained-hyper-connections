@@ -419,7 +419,27 @@ class HyperConnections(Module):
                     )
                     if H_post is not None:
                         stats["h_post_min"] = H_post.min()
-                    self.last_stats = {k: v.detach() for k, v in stats.items()}
+
+                    # Spectral analysis stats (expensive, enable separately)
+                    if getattr(self, "collect_spectral_stats", False):
+                        eigs = torch.linalg.eigvals(H_res).abs()
+                        eigs_sorted = eigs.sort(descending=True).values
+                        n = H_res.shape[0]
+                        uniform = torch.ones_like(H_res) / n
+                        identity = torch.eye(n, device=H_res.device, dtype=H_res.dtype)
+
+                        stats.update(
+                            h_res_spectral_gap=1.0 - eigs_sorted[1].item(),
+                            h_res_lambda2=eigs_sorted[1].item(),
+                            h_res_dist_uniform=(H_res - uniform).norm().item(),
+                            h_res_dist_identity=(H_res - identity).norm().item(),
+                            h_res_entropy=-(H_res * (H_res + 1e-10).log()).sum().item(),
+                        )
+
+                    self.last_stats = {
+                        k: v.detach() if isinstance(v, torch.Tensor) else v
+                        for k, v in stats.items()
+                    }
 
             if self.channel_first:
                 branch_input = rearrange(branch_input, "b ... d -> b d ...")

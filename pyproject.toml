@@ -57,3 +57,9 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["hyper_connections"]
+
+[tool.uv.sources]
+rocm-sdk-core = { url = "https://repo.radeon.com/rocm/windows/rocm-rel-7.1.1/rocm_sdk_core-0.1.dev0-py3-none-win_amd64.whl" }
+rocm-sdk-devel = { url = "https://repo.radeon.com/rocm/windows/rocm-rel-7.1.1/rocm_sdk_devel-0.1.dev0-py3-none-win_amd64.whl" }
+rocm-sdk-libraries-custom = { url = "https://repo.radeon.com/rocm/windows/rocm-rel-7.1.1/rocm_sdk_libraries_custom-0.1.dev0-py3-none-win_amd64.whl" }
+rocm = { url = "https://repo.radeon.com/rocm/windows/rocm-rel-7.1.1/rocm-0.1.dev0.tar.gz" }
