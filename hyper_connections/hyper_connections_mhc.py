@@ -169,12 +169,12 @@ class HyperConnections(Module):
 
         # width connection
 
-        init_h_res = torch.full((num_residual_streams, num_residual_streams), -2.0)
-        init_h_res.fill_diagonal_(0.0)
+        # Uniform initialization - all zeros means equal mixing after Sinkhorn
+        init_h_res = torch.zeros((num_residual_streams, num_residual_streams))
         self.H_res_logits = nn.Parameter(init_h_res)
 
-        init_h_pre = torch.full((num_input_views, num_residual_streams), -2.0)
-        init_h_pre[:, init_residual_index] = 0.0
+        # Uniform H_pre initialization
+        init_h_pre = torch.zeros((num_input_views, num_residual_streams))
         self.H_pre_logits = nn.Parameter(init_h_pre)
 
         if add_branch_out_to_residual:
