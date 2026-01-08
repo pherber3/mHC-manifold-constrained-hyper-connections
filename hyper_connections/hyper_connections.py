@@ -343,11 +343,11 @@ class HyperConnections(Module):
                 "orthostochastic",
             ), "mhc_h_res_proj must be 'sinkhorn' or 'orthostochastic'"
 
-            H_res_init = torch.full((num_residual_streams, num_residual_streams), -8.0)
+            H_res_init = torch.full((num_residual_streams, num_residual_streams), -2.0)
             H_res_init.fill_diagonal_(0.0)
             self.H_res_logits = nn.Parameter(H_res_init)
 
-            H_pre_init = torch.full((num_residual_streams,), -8.0)
+            H_pre_init = torch.full((num_residual_streams,), -2.0)
             H_pre_init[init_residual_index] = 0.0
             self.H_pre_logits = nn.Parameter(H_pre_init)
 

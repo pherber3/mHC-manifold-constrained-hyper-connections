@@ -169,11 +169,11 @@ class HyperConnections(Module):
 
         # width connection
 
-        init_h_res = torch.full((num_residual_streams, num_residual_streams), -8.0)
+        init_h_res = torch.full((num_residual_streams, num_residual_streams), -2.0)
         init_h_res.fill_diagonal_(0.0)
         self.H_res_logits = nn.Parameter(init_h_res)
 
-        init_h_pre = torch.full((num_input_views, num_residual_streams), -8.0)
+        init_h_pre = torch.full((num_input_views, num_residual_streams), -2.0)
         init_h_pre[:, init_residual_index] = 0.0
         self.H_pre_logits = nn.Parameter(init_h_pre)
 
