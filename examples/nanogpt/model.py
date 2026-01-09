@@ -172,7 +172,7 @@ class GPTConfig:
         self.hc_disable = kwargs.pop("hc_disable", False)
         self.mhc = kwargs.pop("mhc", False)
         self.sinkhorn_iters = kwargs.pop("sinkhorn_iters", 10)
-        self.sinkhorn_tau = kwargs.pop("sinkhorn_tau", 0.05)
+        self.sinkhorn_tau = kwargs.pop("sinkhorn_tau", 1.0)  # Higher tau enables gradient flow
         self.mhc_h_res_proj = kwargs.pop("mhc_h_res_proj", "sinkhorn")
         self.ns_steps = kwargs.pop("ns_steps", 5)
         self.ns_eps = kwargs.pop("ns_eps", 1e-7)
@@ -180,6 +180,7 @@ class GPTConfig:
         self.mhc_residual_only = kwargs.pop("mhc_residual_only", False)
         self.v_residual = kwargs.pop("v_residual", False)
         self.v_residual_lamb_lr = kwargs.pop("v_residual_lamb_lr", 1e-2)
+        self.mhc_h_res_lr = kwargs.pop("mhc_h_res_lr", 1e-1)  # Higher LR for H_res_logits
 
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -287,12 +288,15 @@ class GPT(nn.Module):
         decay = {pn for pn in decay if pn in param_dict}
         no_decay = {pn for pn in no_decay if pn in param_dict}
         lamb_params = {pn for pn in param_dict if "lamb" in pn}
+        h_res_params = {pn for pn in param_dict if "H_res_logits" in pn}
 
         decay -= lamb_params
         no_decay -= lamb_params
+        decay -= h_res_params
+        no_decay -= h_res_params
 
         assert len(decay & no_decay) == 0
-        assert len(param_dict.keys() - (decay | no_decay | lamb_params)) == 0
+        assert len(param_dict.keys() - (decay | no_decay | lamb_params | h_res_params)) == 0
 
         optim_groups = [
             {
@@ -313,6 +317,17 @@ class GPT(nn.Module):
                     "weight_decay": 0.0,
                     "lr": lamb_lr,
                     "lr_scale": lamb_lr / learning_rate,
+                }
+            )
+
+        if h_res_params:
+            h_res_lr = self.config.mhc_h_res_lr
+            optim_groups.append(
+                {
+                    "params": [param_dict[pn] for pn in sorted(h_res_params)],
+                    "weight_decay": 0.0,
+                    "lr": h_res_lr,
+                    "lr_scale": h_res_lr / learning_rate,
                 }
             )
 

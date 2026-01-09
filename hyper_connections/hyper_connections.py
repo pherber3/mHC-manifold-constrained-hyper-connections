@@ -229,7 +229,7 @@ class HyperConnections(Module):
         num_fracs=1,  # https://arxiv.org/abs/2503.14125
         mhc=False,
         sinkhorn_iters=10,
-        sinkhorn_tau=0.05,
+        sinkhorn_tau=1.0,  # Higher tau enables gradient flow
         mhc_h_res_proj="sinkhorn",
         ns_steps=5,
         ns_eps=1e-7,
@@ -343,8 +343,12 @@ class HyperConnections(Module):
                 "orthostochastic",
             ), "mhc_h_res_proj must be 'sinkhorn' or 'orthostochastic'"
 
-            # Uniform initialization - all zeros means equal mixing after Sinkhorn
+            # Near-identity initialization via negative off-diagonals
+            # With tau=1.0, -2 off-diag gives ~0.71 on diagonal (near identity)
+            # Critical: tau must be high enough (1.0) for gradients to flow
             H_res_init = torch.zeros((num_residual_streams, num_residual_streams))
+            H_res_init.fill_(-2.0)
+            H_res_init.fill_diagonal_(0.0)
             self.H_res_logits = nn.Parameter(H_res_init)
 
             # Uniform H_pre initialization

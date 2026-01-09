@@ -32,6 +32,7 @@ dependencies = [
     "basedpyright>=1.21.0",
     "numpy>=1.26.0",
     "wandb>=0.16.0",
+    "huggingface-hub>=1.2.4",
 ]
 
 [project.urls]

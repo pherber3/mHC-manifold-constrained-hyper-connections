@@ -124,7 +124,7 @@ class HyperConnections(Module):
         depth_residual_fn=add,
         num_fracs=1,  # https://arxiv.org/abs/2503.14125
         mhc_num_iters=10,
-        mhc_tau=0.05,
+        mhc_tau=1.0,  # Higher tau enables gradient flow
     ):
         """
         Appendix J, Algorithm2 in - https://arxiv.org/abs/2409.19606
@@ -169,8 +169,12 @@ class HyperConnections(Module):
 
         # width connection
 
-        # Uniform initialization - all zeros means equal mixing after Sinkhorn
+        # Near-identity initialization via negative off-diagonals
+        # With tau=1.0, -2 off-diag gives ~0.71 on diagonal (near identity)
+        # Critical: tau must be high enough (1.0) for gradients to flow
         init_h_res = torch.zeros((num_residual_streams, num_residual_streams))
+        init_h_res.fill_(-2.0)
+        init_h_res.fill_diagonal_(0.0)
         self.H_res_logits = nn.Parameter(init_h_res)
 
         # Uniform H_pre initialization

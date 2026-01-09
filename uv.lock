@@ -576,6 +576,7 @@ source = { editable = "." }
 dependencies = [
     { name = "basedpyright" },
     { name = "einops" },
+    { name = "huggingface-hub" },
     { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "numpy", version = "2.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -595,6 +596,7 @@ examples = [
 requires-dist = [
     { name = "basedpyright", specifier = ">=1.21.0" },
     { name = "einops", specifier = ">=0.8.0" },
+    { name = "huggingface-hub", specifier = ">=1.2.4" },
     { name = "huggingface-hub", marker = "extra == 'examples'", specifier = ">=0.20.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pytest", specifier = ">=8.2.0" },
