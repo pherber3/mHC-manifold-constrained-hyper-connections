@@ -126,6 +126,7 @@ class Block(nn.Module):
 
         hc_kwargs = dict(
             mhc=config.mhc,
+            mhc_bypass_stream=getattr(config, "mhc_bypass_stream", False),
             sinkhorn_iters=config.sinkhorn_iters,
             sinkhorn_tau=config.sinkhorn_tau,
             mhc_h_res_proj=config.mhc_h_res_proj,
@@ -178,6 +179,7 @@ class GPTConfig:
         self.ns_eps = kwargs.pop("ns_eps", 1e-7)
         self.ns_coeffs = kwargs.pop("ns_coeffs", (3.0, -3.2, 1.2))
         self.mhc_residual_only = kwargs.pop("mhc_residual_only", False)
+        self.mhc_bypass_stream = kwargs.pop("mhc_bypass_stream", False)
         self.v_residual = kwargs.pop("v_residual", False)
         self.v_residual_lamb_lr = kwargs.pop("v_residual_lamb_lr", 1e-2)
         self.mhc_h_res_lr = kwargs.pop("mhc_h_res_lr", 1e-1)  # Higher LR for H_res_logits

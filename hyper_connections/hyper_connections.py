@@ -228,6 +228,7 @@ class HyperConnections(Module):
         depth_residual_fn=add,
         num_fracs=1,  # https://arxiv.org/abs/2503.14125
         mhc=False,
+        mhc_bypass_stream=False,
         sinkhorn_iters=10,
         sinkhorn_tau=1.0,  # Higher tau enables gradient flow
         mhc_h_res_proj="sinkhorn",
@@ -328,6 +329,7 @@ class HyperConnections(Module):
         self.depth_residual_fn = depth_residual_fn
 
         self.mhc = mhc
+        self.mhc_bypass_stream = mhc_bypass_stream
         self.sinkhorn_iters = sinkhorn_iters
         self.sinkhorn_tau = sinkhorn_tau
         self.mhc_h_res_proj = mhc_h_res_proj
@@ -343,15 +345,19 @@ class HyperConnections(Module):
                 "orthostochastic",
             ), "mhc_h_res_proj must be 'sinkhorn' or 'orthostochastic'"
 
+            # H_res: (n-1)×(n-1) when bypass enabled, n×n otherwise
+            # Stream 0 bypasses H_res when mhc_bypass_stream=True
+            n_mixing = num_residual_streams - 1 if mhc_bypass_stream else num_residual_streams
+
             # Near-identity initialization via negative off-diagonals
             # With tau=1.0, -2 off-diag gives ~0.71 on diagonal (near identity)
             # Critical: tau must be high enough (1.0) for gradients to flow
-            H_res_init = torch.zeros((num_residual_streams, num_residual_streams))
+            H_res_init = torch.zeros((n_mixing, n_mixing))
             H_res_init.fill_(-2.0)
             H_res_init.fill_diagonal_(0.0)
             self.H_res_logits = nn.Parameter(H_res_init)
 
-            # Uniform H_pre initialization
+            # H_pre/H_post: all streams participate (full num_residual_streams)
             H_pre_init = torch.zeros((num_residual_streams,))
             self.H_pre_logits = nn.Parameter(H_pre_init)
 
@@ -391,6 +397,7 @@ class HyperConnections(Module):
                 residuals_mixed_source, "(b s) ... d -> b ... s d", s=streams
             )
 
+            # Project H_res (may be smaller than num_streams if bypass enabled)
             if self.mhc_h_res_proj == "orthostochastic":
                 H_res = orthostochastic_project(
                     self.H_res_logits,
@@ -408,9 +415,17 @@ class HyperConnections(Module):
             if self.add_branch_out_to_residual:
                 H_post = F.softmax(self.H_post_logits, dim=-1)
 
-            residuals_mixed = einsum(
-                H_res, residuals_mixed_source, "s t, ... s d -> ... t d"
-            )
+            # Handle bypass stream: stream 0 skips H_res, streams 1+ mix
+            if self.mhc_bypass_stream:
+                bypass_stream = residuals_mixed_source[..., 0:1, :]  # (batch, ..., 1, d)
+                mixing_streams = residuals_mixed_source[..., 1:, :]  # (batch, ..., n-1, d)
+                mixed_streams = einsum(H_res, mixing_streams, "s t, ... s d -> ... t d")
+                residuals_mixed = torch.cat([bypass_stream, mixed_streams], dim=-2)
+            else:
+                residuals_mixed = einsum(
+                    H_res, residuals_mixed_source, "s t, ... s d -> ... t d"
+                )
+
             branch_input = einsum(H_pre, residuals, "s, ... s d -> ... d")
 
             if getattr(self, "collect_stats", False):

@@ -321,3 +321,69 @@ def test_mhc_gradients_flow():
     assert not torch.isnan(hc.H_res_logits.grad).any()
     assert not torch.isnan(hc.H_pre_logits.grad).any()
     assert not torch.isnan(hc.H_post_logits.grad).any()
+
+
+def test_mhc_bypass_stream():
+    """Test that stream 0 bypasses H_res when mhc_bypass_stream=True."""
+    from hyper_connections.hyper_connections import HyperConnections
+
+    streams, dim, batch, seq = 5, 64, 2, 8  # 1 bypass + 4 mixing
+    hc = HyperConnections(
+        num_residual_streams=streams,
+        dim=dim,
+        mhc=True,
+        mhc_bypass_stream=True,
+        sinkhorn_tau=1.0,
+    )
+
+    # H_res_logits should be 4×4 (only mixing streams)
+    assert hc.H_res_logits.shape == (4, 4)
+
+    # H_pre and H_post should be 5-dim (all streams)
+    assert hc.H_pre_logits.shape == (5,)
+    assert hc.H_post_logits.shape == (5,)
+
+    # Forward pass - verify stream 0 bypasses H_res
+    x = torch.randn(batch * streams, seq, dim)
+    branch_input, residuals, kwargs = hc.width_connection(x)
+
+    # residuals_mixed should have stream 0 unchanged from input
+    # Shape is (batch, seq, fracs, streams, dim) with fracs=1, squeeze the fracs dim
+    residuals_mixed = kwargs["residuals_mixed"].squeeze(-3)
+
+    # Reshape input to compare with residuals_mixed
+    # Input shape: (batch*streams, seq, dim) -> (batch, streams, seq, dim) -> (batch, seq, streams, dim)
+    x_reshaped = x.view(batch, streams, seq, dim).permute(0, 2, 1, 3)
+
+    # Stream 0 should be identical (bypass)
+    assert torch.allclose(
+        residuals_mixed[..., 0, :], x_reshaped[..., 0, :], atol=1e-6
+    ), "Stream 0 should bypass H_res unchanged"
+
+    # Verify shape is correct
+    assert residuals_mixed.shape == (batch, seq, streams, dim)
+
+
+def test_mhc_bypass_stream_gradients():
+    """Test that gradients flow correctly with bypass stream."""
+    from hyper_connections.hyper_connections import HyperConnections
+
+    hc = HyperConnections(
+        num_residual_streams=5, dim=64, mhc=True, mhc_bypass_stream=True
+    )
+    x = torch.randn(10, 8, 64, requires_grad=True)
+
+    branch_input, add_residual = hc(x)
+    out = add_residual(branch_input)
+    out.sum().backward()
+
+    # H_res_logits should have gradients (4×4 matrix)
+    assert hc.H_res_logits.grad is not None
+    assert hc.H_res_logits.grad.shape == (4, 4)
+    assert not torch.isnan(hc.H_res_logits.grad).any()
+
+    # H_pre and H_post should have gradients (5-dim)
+    assert hc.H_pre_logits.grad is not None
+    assert hc.H_pre_logits.grad.shape == (5,)
+    assert hc.H_post_logits.grad is not None
+    assert hc.H_post_logits.grad.shape == (5,)

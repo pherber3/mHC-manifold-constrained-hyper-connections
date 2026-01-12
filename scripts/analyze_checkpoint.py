@@ -10,10 +10,16 @@ Usage:
 
 import argparse
 import json
+import re
 from pathlib import Path
 import sys
 
 import torch
+
+
+def natural_sort_key(s):
+    """Sort strings with embedded numbers naturally (e.g., h.2 before h.10)."""
+    return [int(x) if x.isdigit() else x for x in re.split(r'(\d+)', s)]
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -32,7 +38,7 @@ def extract_h_res_matrices(
     state_dict: dict,
     projection: str = "sinkhorn",
     sinkhorn_iters: int = 10,
-    sinkhorn_tau: float = 0.05,
+    sinkhorn_tau: float = 1.0,
     ns_steps: int = 5,
     ns_eps: float = 1e-7,
     ns_coeffs: tuple = (3.0, -3.2, 1.2),
@@ -42,7 +48,7 @@ def extract_h_res_matrices(
 
     Keys follow pattern: transformer.h.{block_idx}.hc_{attn|mlp}.H_res_logits
     """
-    h_res_keys = sorted([k for k in state_dict if "H_res_logits" in k])
+    h_res_keys = sorted([k for k in state_dict if "H_res_logits" in k], key=natural_sort_key)
     h_res_list = []
 
     for key in h_res_keys:
@@ -60,7 +66,7 @@ def run_analysis(
     checkpoint_path: str,
     projection: str = "sinkhorn",
     sinkhorn_iters: int = 10,
-    sinkhorn_tau: float = 0.05,
+    sinkhorn_tau: float = 1.0,
 ) -> dict:
     """
     Run complete spectral analysis on a checkpoint.
@@ -193,7 +199,7 @@ def main():
         "--sinkhorn-iters", type=int, default=10, help="Sinkhorn iterations"
     )
     parser.add_argument(
-        "--sinkhorn-tau", type=float, default=0.05, help="Sinkhorn temperature"
+        "--sinkhorn-tau", type=float, default=1.0, help="Sinkhorn temperature"
     )
     parser.add_argument(
         "--quiet", action="store_true", help="Suppress detailed output"
